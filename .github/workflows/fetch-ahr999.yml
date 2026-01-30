@@ -1,0 +1,63 @@
+name: Fetch ahr999 JSON
+
+on:
+  schedule:
+    # GitHub cron is UTC. Twice daily at 00:05 and 12:05 UTC:
+    - cron: "5 0 * * *"
+    - cron: "5 12 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-ahr999
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch JSON
+        run: |
+          set -euo pipefail
+
+          mkdir -p docs
+
+          # Fetch to a temp file first
+          curl -sS --fail \
+            -H "Accept: application/json" \
+            "https://api.coincapmarket.com/api/data/ahr999" \
+            -o /tmp/ahr999.json
+
+          # Optional: sanity-check JSON (jq is available on ubuntu-latest)
+          jq . /tmp/ahr999.json > /tmp/ahr999.min.json
+
+          # Write to Pages-served location
+          mv /tmp/ahr999.min.json docs/ahr999.json
+
+          # Add a timestamp file (useful for debugging / cache-busting logic)
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > docs/last_updated_utc.txt
+
+          # Ensure .nojekyll exists
+          touch docs/.nojekyll
+
+      - name: Commit & push if changed
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # If nothing changed, don't create a useless commit
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git add docs/ahr999.json docs/last_updated_utc.txt docs/.nojekyll
+          git commit -m "Update ahr999.json"
+          git push
